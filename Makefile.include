@@ -1,0 +1,54 @@
+# Acknowledgement: Functionality for creating make rules of dependencies is
+# based on code presented here <http://codereview.stackexchange.com/q/11109>
+
+DIS_HOME := /opt/DIS
+CU_HOME  := /usr/local/cuda
+
+SOURCES = $(wildcard *.c)
+# Add dot prefix to hide files.
+OBJECTS = $(SOURCES:.c=.o)
+
+DEPENDENCIES = $(addprefix .,$(SOURCES:.c=.d))  # Add dot prefix to hide files.
+
+# Use the compiler to generate make rules. See gcc manual for details.
+MFLAGS = -MMD -MP -MF
+
+# Compiler and linker settings
+CC       := /usr/bin/gcc
+NVCC     := $(CU_HOME)/bin/nvcc
+INCLUDE  := -I$(PWD)/.. -I$(DIS_HOME)/include -I$(DIS_HOME)/include/dis -I $(DIS_HOME)/src/include -I$(CU_HOME)/include
+CFLAGS   := -fno-tree-vectorize --std=c99 -Wall -Wextra -D_REENTRANT -O1 $(INCLUDE)
+LDLIBS   := -lsisci -lm
+
+.PHONY: clean all
+
+#Create symlink from arch specific build dir to real source
+%.c:../%.c
+	ln -s $^ $@
+
+# How to compile C
+%.o: %.c
+	$(CC) $(CFLAGS) $(MFLAGS) $(addprefix .,$(patsubst %.o,%.d,$@)) -c $< -o $@
+
+# How to compile CUDA
+%.o: %.cu
+	$(NVCC) -std=c++11 -x cu -ccbin $(CC) -Xcompiler "$(CFLAGS)" -o $@ $< -c
+
+# How to compile C++
+%.o: %.cc $(HEADERS)
+	$(CC) -x c++ -std=c++11 $(CFLAGS) $(INCLUDE) -o $@ $< -c
+
+
+all: c63enc #c63dec c63pred
+c63server: c63server.o dsp.o tables.o common.o me.o
+	$(CC) $^ $(CFLAGS) $(LDFLAGS) -o $@
+c63enc: c63enc.o tables.o io.o c63_write.o
+	$(CC) $^ $(CFLAGS) $(LDFLAGS) -o $@
+c63dec: c63dec.c dsp.o tables.o io.o common.o me.o
+	$(CC) $^ $(CFLAGS) $(LDFLAGS) -o $@
+c63pred: c63dec.c dsp.o tables.o io.o common.o me.o
+	$(CC) $^ -DC63_PRED $(CFLAGS) $(LDFLAGS) -o $@
+clean:
+	$(RM) c63server c63enc c63dec c63pred *.o $(DEPENDENCIES)
+
+-include $(DEPENDENCIES)
